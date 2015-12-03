@@ -1,6 +1,6 @@
-;
-(function($) {
+;(function($) {
     'use strict';
+    var slice = Array.prototype.slice;
     var isFunction = $.isFunction;
     var isString = function(obj) {
         return typeof obj == 'string';
@@ -64,6 +64,10 @@
 
     $.fn.touch.defaults = defaults;
 
+    //Timeouts
+    var singleTapTimeout = null;
+    var holdTimeout = null;
+
     var _tid = 1;
     var handlers = {};
 
@@ -118,12 +122,13 @@
     }
 
     Touch.prototype = {
-        _inTouch: false,
+        _isTouch: false,
+        _doubleTapTime: 0,
         touch: {},
         touchStart: function(e) {
             var _this = this;
             var options = this.options;
-            if (this._inTouch || $(e.target).closest(options.excludedElements, this.el).length) {
+            if (this._isTouch || $(e.target).closest(options.excludedElements, this.el).length) {
                 return;
             }
             var touches = e.touches;
@@ -148,43 +153,81 @@
                 }
                 this.setTouchProgress(true);
             } else {
+                this._status = 'cancel';
+                this.triggerHandler(e);
                 return false;
             }
         },
         touchMove: function(e) {
+            if (this._status === 'end' || this._status === 'cancel') {
+                return;
+            }
             if (this.event === 'longTap') {
-                clearTimeout(holdTimeout);
+                holdTimeout && clearTimeout(holdTimeout);
                 return;
             }
 
             this.updateTouchData();
-            this.touch.last = e.timeStamp;
-
+            this.touch.now = e.timeStamp;
             if (this.hasSwipe()) {
+                this._status = 'move';
                 if (this.options.preventDefaultEvents) {
                     e.preventDefault();
                 }
+            } else {
+                this._status = 'cancel';
+                this.triggerHandler(e);
             }
         },
         touchEnd: function(e) {
             if (this.options.preventDefaultEvents) {
                 e.preventDefault();
             }
+
+            this.touch.now = e.timeStamp;
+
+            this._status = this._status === 'move' ? 'cancel' : 'end';
+
+            this.triggerHandler(e);
+
             this.setTouchProgress(false);
         },
-        touchCancel: function(e) {
+        touchCancel: function() {
             this.touch = {};
             this.setTouchProgress(false);
         },
-        triggerHandler: function(e, status) {
-            if (this.hasSwipe()) {
+        triggerHandler: function(e) {
+            var _this = this;
+            var ret;
+            if (this._status === 'end' && this.hasSwipe() && this.isSwipe()) {
+                this.trigger(this.event, e, this.getDirection());
+            } else if (this._status === 'cancel' || this._status === 'end') {
+                holdTimeout && clearTimeout(holdTimeout);
+                singleTapTimeout && clearTimeout(singleTapTimeout);
 
+                if (this.isDoubleTap() || this.isLongTap()) {
+                    this._doubleTapTime = null;
+                    this.trigger(this.event, e);
+                } else if (this.isTap()) {
+                    if (this.event === 'doubleTap' && !this.isDoubleTap()) {
+                        this._doubleTapTime = this.touch.now;
+                        singleTapTimeout = setTimeout(function() {
+                            _this._doubleTapTime = null;
+                        }, this.options.doubleTapThreshold);
+                    } else {
+                        this._doubleTapTime = null;
+                    }
+                    if (this.event === 'tap') {
+                        this.trigger('tap', e);
+                    }
+                }
+                this.touchCancel();
             }
         },
-        trigger: function(eventName, event) {
-            this.$el.trigger(eventName);
-            if (this.event === eventName) {
-                this.callback.call(this.$el, event);
+        trigger: function(event) {
+            this.$el.trigger(event);
+            if (this.event === event) {
+                return this.callback.apply(this.$el, slice.call(arguments, 1));
             }
         },
         hasSwipe: function() {
@@ -193,11 +236,26 @@
         isSwipe: function() {
             return this.getDistance() >= this.options.threshold && this.touch.x2;
         },
+        isDoubleTap: function() {
+            if (this._doubleTapTime === null) {
+                return false;
+            }
+            return this.event === 'doubleTap' && ((this.touch.now - this._doubleTapTime) <= this.options.doubleTapThreshold);
+        },
+        hasTap: function() {
+            return this.event === 'tap' || this.event === 'doubleTap';
+        },
+        isTap: function() {
+            return this.hasTap() && this.getDistance() < this.options.threshold;
+        },
+        isLongTap: function() {
+            return this.event === 'longTap' && this.getDuration() > this.options.longTapThreshold && this.getDistance() < 10;
+        },
         createTouchData: function(e) {
             var touch = {};
             touch.x1 = touch.x2 = e.pageX || e.clientX;
             touch.y1 = touch.y2 = e.pageY || e.clientY;
-            touch.now = e.timeStamp;
+            touch.now = touch.last = e.timeStamp;
             this.touch = touch;
             return touch;
         },
@@ -214,7 +272,8 @@
             return Math.round(Math.sqrt(Math.pow(touch.x2 - touch.x1, 2) + Math.pow(touch.y2 - touch.y1, 2)));
         },
         getDuration: function() {
-            return
+            var touch = this.touch;
+            return touch.last - touch.now;
         },
         setTouchProgress: function(isTouch) {
             if (isTouch) {
@@ -222,7 +281,7 @@
             } else {
                 this.$el.off(MOVE_EV, $.proxy(this.touchMove, this)).off(END_EV, $.proxy(this.touchEnd, this));
             }
-            this._inTouch = isTouch;
+            this._isTouch = isTouch;
         }
     };
 
