@@ -1,5 +1,6 @@
 ;(function($) {
     'use strict';
+    var undefined;
     var slice = Array.prototype.slice;
     var isFunction = $.isFunction;
     var isString = function(obj) {
@@ -33,7 +34,6 @@
         }
     }
 
-
     var PLUGIN_NS = '_TOUCH_';
     var SUPPORTS_TOUCH = 'ontouchstart' in window;
     var SUPPORTS_POINTER_IE10 = window.navigator.msPointerEnabled && !window.navigator.pointerEnabled;
@@ -52,7 +52,8 @@
         doubleTapThreshold: 200,
         fallbackToMouseEvents: true,
         excludedElements: 'label, button, input, select, textarea, .noTouch',
-        preventDefaultEvents: true
+        preventDefaultEvents: true,
+        swipeMove: null
     };
 
     // 这个入口用来设置参数的
@@ -64,21 +65,58 @@
 
     $.fn.touch.defaults = defaults;
 
-    //Timeouts
     var singleTapTimeout = null;
     var holdTimeout = null;
 
     var _tid = 1;
     var handlers = {};
 
+    function isTouchEvent(event) {
+        return /^(tap|doubleTap|longTap|swipe|swipeLeft|swipeRight|swipeUp|swipeDown)$/.test(parse(event).e);
+    }
+
     function tid(element) {
         return element._tid || (element._tid = _tid++);
     }
 
-    function Touch(element, event, selector, data, callback) {
-        var id = tid(element),
-            set = (handlers[id] || (handlers[id] = []));
+    function parse(event) {
+        var parts = ('' + event).split('.')
+        return {
+            e: parts[0],
+            ns: parts.slice(1).sort().join(' ')
+        }
+    }
 
+    function matcherFor(ns) {
+        return new RegExp('(?:^| )' + ns.replace(' ', ' .* ?') + '(?: |$)');
+    }
+
+    function findHandlers(element, event, fn, selector) {
+        event = parse(event);
+        if (event.ns) {
+            var matcher = matcherFor(event.ns);
+        }
+        return (handlers[tid(element)] || []).filter(function(handler) {
+            return handler && (!event.e || handler.e == event.e) && (!event.ns || matcher.test(handler.ns)) && (!fn || tid(handler.fn) === tid(fn)) && (!selector || handler.sel == selector);
+        });
+    }
+
+    function removeTouch(element, event, selector, callback) {
+        if (!isString(selector) && !isFunction(callback) && callback !== false) {
+            callback = selector;
+            selector = undefined;
+        }
+        if (callback === false) {
+            callback = returnFalse;
+        }
+        var id = tid(element);
+        var offHandlers = findHandlers(element, event, callback, selector);
+        $.each(offHandlers, function(index, handler) {
+            handlers[id].splice(handler.i, 1);
+        });
+    }
+
+    function Touch(element, event, selector, data, callback) {
         if (!isString(selector) && !isFunction(callback) && callback !== false) {
             callback = data;
             data = selector;
@@ -92,33 +130,39 @@
             callback = returnFalse;
         }
 
-        var handler = {
-            e: event,
-            fn: callback
-        };
-
-        var delegator;
+        var handler = parse(event);
+        handler.fn = callback;
+        handler.callback = callback;
 
         if (selector) {
-            delegator = function(e) {
+            handler.callback = function(e) {
                 var match = $(e.target).closest(selector, element).get(0);
                 if (match && match !== element) {
                     return callback.apply(match, arguments);
                 }
             };
             handler.sel = selector;
-            handler.del = delegator;
         }
 
+        // 判断是否已经添加过touch
+        var hasTouch = !!element._tid;
+
+        var id = tid(element);
+        var set = (handlers[id] || (handlers[id] = []));
         handler.i = set.length;
         set.push(handler);
 
-        this.callback = delegator || callback;
+        if (typeof Touch.instance === 'object' && hasTouch) {
+            return Touch.instance;
+        }
+
+        this.handler = set;
         this.el = element;
         this.$el = $(element);
         this.options = this.$el.data(PLUGIN_NS) || $.fn.touch.defaults;
-        this.event = event;
         this.$el.on(START_EV, $.proxy(this.touchStart, this)).on(CANCEL_EV, $.proxy(this.touchCancel, this));
+
+        Touch.instance = this;
     }
 
     Touch.prototype = {
@@ -131,22 +175,23 @@
             if (this._isTouch || $(e.target).closest(options.excludedElements, this.el).length) {
                 return;
             }
+
+            this._status = 'start';
+
             var touches = e.touches;
             var evt = touches ? touches[0] : e;
+            var fingerCount = 0;
 
-            if (options.preventDefaultEvents) {
+            if (touches) {
+                fingerCount = touches.length;
+            } else if (options.preventDefaultEvents) {
                 e.preventDefault();
             }
 
-            var fingerCount = 0;
-            if (touches) {
-                fingerCount = touches.length;
-            }
-
-            this.createTouchData(0, e);
+            this.createTouchData(evt);
 
             if (!touches || (fingerCount === options.fingers || options.fingers === 'all')) {
-                if (this.event === 'longTap') {
+                if (this.hasEvent('longTap')) {
                     holdTimeout = setTimeout(function() {
                         _this.trigger('longTap', e);
                     }, options.longTapThreshold);
@@ -162,17 +207,25 @@
             if (this._status === 'end' || this._status === 'cancel') {
                 return;
             }
-            if (this.event === 'longTap') {
+            if (this.hasEvent('longTap')) {
                 holdTimeout && clearTimeout(holdTimeout);
                 return;
             }
-
-            this.updateTouchData();
+            var touches = e.touches;
+            var evt = touches ? touches[0] : e;
+            this.updateTouchData(evt);
             this.touch.now = e.timeStamp;
             if (this.hasSwipe()) {
                 this._status = 'move';
                 if (this.options.preventDefaultEvents) {
                     e.preventDefault();
+                }
+                if (isFunction(this.options.swipeMove)) {
+                    var direction = this.getDirection();
+                    var distance = (direction === 'up' || direction === 'down') ? this.touch.y2 - this.touch.y1 : this.touch.x2 - this.touch.x1;
+                    var duration = this.getDuration();
+                    this.$el.trigger('swipeMove', [direction, distance, duration, e]);
+                    this.options.swipeMove.call(this.el, e, direction, distance, duration);
                 }
             } else {
                 this._status = 'cancel';
@@ -180,17 +233,13 @@
             }
         },
         touchEnd: function(e) {
-            if (this.options.preventDefaultEvents) {
-                e.preventDefault();
-            }
 
             this.touch.now = e.timeStamp;
-
-            this._status = this._status === 'move' ? 'cancel' : 'end';
+            this._status = this._status === 'move' ? 'end' : 'cancel';
 
             this.triggerHandler(e);
 
-            this.setTouchProgress(false);
+            this.touchCancel();
         },
         touchCancel: function() {
             this.touch = {};
@@ -198,18 +247,25 @@
         },
         triggerHandler: function(e) {
             var _this = this;
-            var ret;
-            if (this._status === 'end' && this.hasSwipe() && this.isSwipe()) {
-                this.trigger(this.event, e, this.getDirection());
+            if (this._status === 'end' && this.isSwipe() && this.hasSwipe()) {
+                var swipes = this.getSwipe();
+                var direction = this.getDirection();
+                $.each(swipes, function(index, event) {
+                    _this.trigger(event, e, direction);
+                });
             } else if (this._status === 'cancel' || this._status === 'end') {
                 holdTimeout && clearTimeout(holdTimeout);
                 singleTapTimeout && clearTimeout(singleTapTimeout);
+                holdTimeout = singleTapTimeout = null;
 
-                if (this.isDoubleTap() || this.isLongTap()) {
+                if (this.isDoubleTap()) {
                     this._doubleTapTime = null;
-                    this.trigger(this.event, e);
+                    this.trigger('doubleTap', e);
+                } else if (this.isLongTap()) {
+                    this._doubleTapTime = null;
+                    this.trigger('longTap', e);
                 } else if (this.isTap()) {
-                    if (this.event === 'doubleTap' && !this.isDoubleTap()) {
+                    if (this.hasEvent('doubleTap') && !this.isDoubleTap()) {
                         this._doubleTapTime = this.touch.now;
                         singleTapTimeout = setTimeout(function() {
                             _this._doubleTapTime = null;
@@ -217,21 +273,57 @@
                     } else {
                         this._doubleTapTime = null;
                     }
-                    if (this.event === 'tap') {
+                    if (this.hasEvent('tap')) {
                         this.trigger('tap', e);
                     }
                 }
                 this.touchCancel();
             }
         },
-        trigger: function(event) {
-            this.$el.trigger(event);
-            if (this.event === event) {
-                return this.callback.apply(this.$el, slice.call(arguments, 1));
+        trigger: function(event, evt) {
+            var _this = this;
+            var args = slice.call(arguments, 1);
+            // this.$el.trigger(event, evt);
+            $.each(this.handler, function(index, handler) {
+                if (handler.e === event) {
+                    handler.callback.apply(_this.el, args);
+                }
+            });
+        },
+        hasEvent: function(event) {
+            var handler = this.handler;
+            var ret = false;
+            var reg = new RegExp('^(' + event + ')$');
+            for (var i = handler.length - 1; i >= 0; i--) {
+                if (reg.test(handler[i].e)) {
+                    ret = true;
+                    break;
+                }
             }
+            return ret;
         },
         hasSwipe: function() {
-            return /^(swipe|swipeLeft|swipeRight|swipeUp|swipeDown)$/.test(this.event);
+            return this.hasEvent('swipe|swipeLeft|swipeRight|swipeUp|swipeDown');
+        },
+        getSwipe: function() {
+            var result = [];
+            var handler = this.handler;
+            var swipes = {
+                swipe: 1,
+                swipeLeft: 1,
+                swipeRight: 1,
+                swipeUp: 1,
+                swipeDown: 1
+            };
+            for (var i = handler.length - 1; i >= 0; i--) {
+                if (swipes[handler[i].e]) {
+                    swipes[handler[i].e] = 0;
+                }
+            }
+            $.each(swipes, function(key, value) {
+                value === 0 && result.push(key);
+            });
+            return result;
         },
         isSwipe: function() {
             return this.getDistance() >= this.options.threshold && this.touch.x2;
@@ -240,22 +332,22 @@
             if (this._doubleTapTime === null) {
                 return false;
             }
-            return this.event === 'doubleTap' && ((this.touch.now - this._doubleTapTime) <= this.options.doubleTapThreshold);
+            return this.hasEvent('doubleTap') && ((this.touch.now - this._doubleTapTime) <= this.options.doubleTapThreshold);
         },
         hasTap: function() {
-            return this.event === 'tap' || this.event === 'doubleTap';
+            return this.hasEvent('tap|doubleTap');
         },
         isTap: function() {
             return this.hasTap() && this.getDistance() < this.options.threshold;
         },
         isLongTap: function() {
-            return this.event === 'longTap' && this.getDuration() > this.options.longTapThreshold && this.getDistance() < 10;
+            return this.hasEvent('longTap') && this.getDuration() > this.options.longTapThreshold && this.getDistance() < 10;
         },
         createTouchData: function(e) {
             var touch = {};
             touch.x1 = touch.x2 = e.pageX || e.clientX;
             touch.y1 = touch.y2 = e.pageY || e.clientY;
-            touch.now = touch.last = e.timeStamp;
+            touch.now = touch.last = new Date().getTime();
             this.touch = touch;
             return touch;
         },
@@ -273,7 +365,7 @@
         },
         getDuration: function() {
             var touch = this.touch;
-            return touch.last - touch.now;
+            return touch.now - touch.last;
         },
         setTouchProgress: function(isTouch) {
             if (isTouch) {
@@ -292,13 +384,29 @@
         if (event && !isString(event)) {
             return _on.apply(this, arguments);
         }
-        if (/^(tap|doubleTap|longTap|swipe|swipeLeft|swipeRight|swipeUp|swipeDown)$/.test(event)) {
+
+        if (isTouchEvent(event)) {
             this.each(function() {
                 new Touch(this, event, selector, data, callback);
             });
             return this;
         } else {
             return _on.apply(this, arguments);
+        }
+    };
+
+    $.fn.off = function(event, selector, callback) {
+        if (event && !isString(event)) {
+            return _off.apply(this, arguments);
+        }
+
+        if (isTouchEvent(event)) {
+            this.each(function() {
+                removeTouch(this, event, selector, callback);
+            });
+            return this;
+        } else {
+            return _off.apply(this, arguments);
         }
     };
 
