@@ -4,7 +4,10 @@
     var slice = Array.prototype.slice;
     var isFunction = $.isFunction;
     var isString = function(obj) {
-        return typeof obj == 'string';
+        return typeof obj === 'string';
+    };
+    var isObject = function(obj) {
+        return typeof obj === 'object';
     };
     var returnFalse = function() {
         return false;
@@ -35,32 +38,40 @@
     }
 
     var PLUGIN_NS = '_TOUCH_';
+    var PLUGIN_EVENT_NS = '.' + PLUGIN_NS + 'EVENT_';
     var SUPPORTS_TOUCH = 'ontouchstart' in window;
     var SUPPORTS_POINTER_IE10 = window.navigator.msPointerEnabled && !window.navigator.pointerEnabled;
     var SUPPORTS_POINTER = window.navigator.pointerEnabled || window.navigator.msPointerEnabled;
     var useTouchEvents = SUPPORTS_TOUCH || SUPPORTS_POINTER;
-    var START_EV = useTouchEvents ? (SUPPORTS_POINTER ? (SUPPORTS_POINTER_IE10 ? 'MSPointerDown' : 'pointerdown') : 'touchstart') : 'mousedown';
-    var MOVE_EV = useTouchEvents ? (SUPPORTS_POINTER ? (SUPPORTS_POINTER_IE10 ? 'MSPointerMove' : 'pointermove') : 'touchmove') : 'mousemove';
-    var END_EV = useTouchEvents ? (SUPPORTS_POINTER ? (SUPPORTS_POINTER_IE10 ? 'MSPointerUp' : 'pointerup') : 'touchend') : 'mouseup';
-    var CANCEL_EV = (SUPPORTS_POINTER ? (SUPPORTS_POINTER_IE10 ? 'MSPointerCancel' : 'pointercancel') : 'touchcancel');
+    var START_EV = (useTouchEvents ? (SUPPORTS_POINTER ? (SUPPORTS_POINTER_IE10 ? 'MSPointerDown' : 'pointerdown') : 'touchstart') : 'mousedown') + PLUGIN_EVENT_NS;
+    var MOVE_EV = (useTouchEvents ? (SUPPORTS_POINTER ? (SUPPORTS_POINTER_IE10 ? 'MSPointerMove' : 'pointermove') : 'touchmove') : 'mousemove') + PLUGIN_EVENT_NS;
+    var END_EV = (useTouchEvents ? (SUPPORTS_POINTER ? (SUPPORTS_POINTER_IE10 ? 'MSPointerUp' : 'pointerup') : 'touchend') : 'mouseup') + PLUGIN_EVENT_NS;
+    var CANCEL_EV = (SUPPORTS_POINTER ? (SUPPORTS_POINTER_IE10 ? 'MSPointerCancel' : 'pointercancel') : 'touchcancel') + PLUGIN_EVENT_NS;
 
     var defaults = {
         fingers: 1,
         threshold: 75,
-        fingerReleaseThreshold: 250,
         longTapThreshold: 500,
         doubleTapThreshold: 200,
-        fallbackToMouseEvents: true,
         excludedElements: 'label, button, input, select, textarea, .noTouch',
         preventDefaultEvents: true,
         swipeMove: null
     };
 
-    // 这个入口用来设置参数的
+    var _cache = {};
     $.fn.touch = function(options) {
-        if (typeof options === 'object') {
-            this.data(PLUGIN_NS, $.extend({}, $.fn.touch.defaults, options));
+        var opts = {};
+        var cid;
+        if (isObject(options)) {
+           $.extend(opts, $.fn.touch.defaults, options);
+            this.each(function () {
+                cid = _tid;
+                _cache[cid] = opts;
+                this._cid = cid;
+                _tid++;
+            });
         }
+        return this;
     };
 
     $.fn.touch.defaults = defaults;
@@ -144,7 +155,6 @@
             handler.sel = selector;
         }
 
-        // 判断是否已经添加过touch
         var hasTouch = !!element._tid;
 
         var id = tid(element);
@@ -152,14 +162,14 @@
         handler.i = set.length;
         set.push(handler);
 
-        if (typeof Touch.instance === 'object' && hasTouch) {
+        if (isObject(Touch.instance) && hasTouch) {
             return Touch.instance;
         }
 
         this.handler = set;
         this.el = element;
         this.$el = $(element);
-        this.options = this.$el.data(PLUGIN_NS) || $.fn.touch.defaults;
+        this.options = _cache[element._cid] || $.fn.touch.defaults;
         this.$el.on(START_EV, $.proxy(this.touchStart, this)).on(CANCEL_EV, $.proxy(this.touchCancel, this));
 
         Touch.instance = this;
@@ -172,7 +182,7 @@
         touchStart: function(e) {
             var _this = this;
             var options = this.options;
-            if (this._isTouch || $(e.target).closest(options.excludedElements, this.el).length) {
+            if (this._isTouch || !this.handler.length || $(e.target).closest(options.excludedElements, this.el).length) {
                 return;
             }
 
@@ -220,9 +230,10 @@
                 if (this.options.preventDefaultEvents) {
                     e.preventDefault();
                 }
+                console.log(this.options);
                 if (isFunction(this.options.swipeMove)) {
                     var direction = this.getDirection();
-                    var distance = (direction === 'up' || direction === 'down') ? this.touch.y2 - this.touch.y1 : this.touch.x2 - this.touch.x1;
+                    var distance = Math.abs((direction === 'up' || direction === 'down') ? this.touch.y2 - this.touch.y1 : this.touch.x2 - this.touch.x1);
                     var duration = this.getDuration();
                     this.$el.trigger('swipeMove', [direction, distance, duration, e]);
                     this.options.swipeMove.call(this.el, e, direction, distance, duration);
@@ -283,7 +294,7 @@
         trigger: function(event, evt) {
             var _this = this;
             var args = slice.call(arguments, 1);
-            // this.$el.trigger(event, evt);
+            this.$el.trigger(event, evt);
             $.each(this.handler, function(index, handler) {
                 if (handler.e === event) {
                     handler.callback.apply(_this.el, args);
