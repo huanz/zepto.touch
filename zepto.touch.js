@@ -102,17 +102,13 @@
         return new RegExp('(?:^| )' + ns.replace(' ', ' .* ?') + '(?: |$)');
     }
 
-    function findHandlers(element, event, fn, selector) {
-        event = parse(event);
-        if (event.ns) {
-            var matcher = matcherFor(event.ns);
-        }
-        return (handlers[tid(element)] || []).filter(function(handler) {
-            return handler && (!event.e || handler.e == event.e) && (!event.ns || matcher.test(handler.ns)) && (!fn || tid(handler.fn) === tid(fn)) && (!selector || handler.sel == selector);
-        });
-    }
-
     function removeTouch(element, event, selector, callback) {
+        var set = handlers[tid(element)];
+        var len = set.length;
+        if (!(Array.isArray(set) && len)) {
+            return;
+        }
+
         if (!isString(selector) && !isFunction(callback) && callback !== false) {
             callback = selector;
             selector = undefined;
@@ -120,11 +116,22 @@
         if (callback === false) {
             callback = returnFalse;
         }
-        var id = tid(element);
-        var offHandlers = findHandlers(element, event, callback, selector);
-        $.each(offHandlers, function(index, handler) {
-            handlers[id].splice(handler.i, 1);
-        });
+
+        event = parse(event);
+        if (event.ns) {
+            var matcher = matcherFor(event.ns);
+        }
+
+        var i = 0;
+        for (i; i < len;) {
+            var handler = set[i];
+            if (handler && handler.e === event.e && (!event.ns || matcher.test(handler.ns)) && (!callback || tid(handler.fn) === tid(callback)) && (!selector || handler.sel == selector)) {
+                set.splice(i, 1);
+                len--;
+            } else {
+                i++;
+            }
+        }
     }
 
     function Touch(element, event, selector, data, callback) {
@@ -159,7 +166,6 @@
 
         var id = tid(element);
         var set = (handlers[id] || (handlers[id] = []));
-        handler.i = set.length;
         set.push(handler);
 
         if (isObject(Touch.instance) && hasTouch) {
@@ -219,6 +225,7 @@
             }
             if (this.hasEvent('longTap')) {
                 holdTimeout && clearTimeout(holdTimeout);
+                holdTimeout = null;
                 return;
             }
             var touches = e.touches;
@@ -230,7 +237,6 @@
                 if (this.options.preventDefaultEvents) {
                     e.preventDefault();
                 }
-                console.log(this.options);
                 if (isFunction(this.options.swipeMove)) {
                     var direction = this.getDirection();
                     var distance = Math.abs((direction === 'up' || direction === 'down') ? this.touch.y2 - this.touch.y1 : this.touch.x2 - this.touch.x1);
@@ -261,7 +267,7 @@
             if (this._status === 'end' && this.isSwipe() && this.hasSwipe()) {
                 var swipes = this.getSwipe();
                 var direction = this.getDirection();
-                $.each(swipes, function(index, event) {
+                swipes.forEach(function(event) {
                     _this.trigger(event, e, direction);
                 });
             } else if (this._status === 'cancel' || this._status === 'end') {
@@ -295,10 +301,8 @@
             var _this = this;
             var args = slice.call(arguments, 1);
             this.$el.trigger(event, evt);
-            $.each(this.handler, function(index, handler) {
-                if (handler.e === event) {
-                    handler.callback.apply(_this.el, args);
-                }
+            this.handler.forEach(function (handler) {
+                handler && handler.e === event && handler.callback.apply(_this.el, args);
             });
         },
         hasEvent: function(event) {
@@ -318,7 +322,6 @@
         },
         getSwipe: function() {
             var result = [];
-            var handler = this.handler;
             var swipes = {
                 swipe: 1,
                 swipeLeft: 1,
@@ -326,13 +329,12 @@
                 swipeUp: 1,
                 swipeDown: 1
             };
-            for (var i = handler.length - 1; i >= 0; i--) {
-                if (swipes[handler[i].e]) {
-                    swipes[handler[i].e] = 0;
+            this.handler.forEach(function (handler) {
+                var event = handler && handler.e;
+                if (swipes[event]) {
+                    result.push(event);
+                    swipes[event] = 0;
                 }
-            }
-            $.each(swipes, function(key, value) {
-                value === 0 && result.push(key);
             });
             return result;
         },
@@ -417,6 +419,11 @@
             });
             return this;
         } else {
+            if (!event) {
+                this.each(function() {
+                    handlers[tid(this)] = [];
+                });
+            }
             return _off.apply(this, arguments);
         }
     };
