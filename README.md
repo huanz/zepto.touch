@@ -12,8 +12,11 @@ the api is the same as zepto/jquery events, but it also provides setting method,
 		}
 	}).on('swipe', 'li', function (e, direction) {
 		console.log(e, direction);	
+	}).on('tap.test', function (e) {
+		console.log('tap.test');
 	}).on('tap', function (e) {
-		console.log(e);
+		console.log('tap');
+		$(this).off('tap.test');
 	});
 	
 # options
