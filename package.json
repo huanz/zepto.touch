@@ -1,6 +1,6 @@
 {
   "name": "zepto.touch",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "a zepto/jquery touch events plugin",
   "main": "zepto.touch.js",
   "scripts": {
@@ -10,7 +10,12 @@
     "type": "git",
     "url": "https://github.com/huanz/zepto.touch"
   },
-  "keywords": ["touch", "zepto.touch", "zepto", "jquery"],
+  "keywords": [
+    "touch",
+    "zepto.touch",
+    "zepto",
+    "jquery"
+  ],
   "dependencies": {
     "zepto": "1.x"
   },
