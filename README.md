@@ -1,6 +1,16 @@
-# zepto.touch
+# zepto.touch [![npm package](https://img.shields.io/npm/v/zepto.touch.svg?style=flat-square)](https://www.npmjs.com/package/zepto.touch)
 
 a zepto/jquery touch events plugin, it provides touch events like `tap`,`doubleTap`,`longTap`,`swipe`,`swipeLeft`,`swipeRight`,`swipeUp`,`swipeDown`.
+
+# installation
+
+use npm:
+
+	npm install zepto.touch
+
+use bower:
+
+	bower install zepto.touch
 
 # usage
 
