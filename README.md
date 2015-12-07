@@ -21,14 +21,14 @@ the api is the same as zepto/jquery events, but it also provides setting method,
 			console.log(e, direction, distance, duration);
 		}
 	}).on('swipe', 'li', function (e, direction) {
-		console.log(e, direction);	
+		console.log(e, direction);
 	}).on('tap.test', function (e) {
 		console.log('tap.test');
 	}).on('tap', function (e) {
 		console.log('tap');
 		$(this).off('tap.test');
 	});
-	
+
 # options
 
 	$.fn.touch.defaults = {
@@ -37,6 +37,5 @@ the api is the same as zepto/jquery events, but it also provides setting method,
         longTapThreshold: 500,
         doubleTapThreshold: 200,
         excludedElements: 'label, button, input, select, textarea, .noTouch',
-        preventDefaultEvents: true,
         swipeMove: null
 	};
