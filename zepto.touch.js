@@ -54,7 +54,6 @@
         longTapThreshold: 500,
         doubleTapThreshold: 200,
         excludedElements: 'label, button, input, select, textarea, .noTouch',
-        preventDefaultEvents: true,
         swipeMove: null
     };
 
@@ -200,7 +199,7 @@
 
             if (touches) {
                 fingerCount = touches.length;
-            } else if (options.preventDefaultEvents) {
+            } else {
                 e.preventDefault();
             }
 
@@ -234,7 +233,7 @@
             this.touch.now = e.timeStamp;
             if (this.hasSwipe()) {
                 this._status = 'move';
-                if (this.options.preventDefaultEvents) {
+                if (this.isSwipe()) {
                     e.preventDefault();
                 }
                 if (isFunction(this.options.swipeMove)) {
@@ -250,7 +249,6 @@
             }
         },
         touchEnd: function(e) {
-
             this.touch.now = e.timeStamp;
             this._status = this._status === 'move' ? 'end' : 'cancel';
 
@@ -265,11 +263,11 @@
         triggerHandler: function(e) {
             var _this = this;
             if (this._status === 'end' && this.isSwipe() && this.hasSwipe()) {
-                var swipes = this.getSwipe();
                 var direction = this.getDirection();
-                swipes.forEach(function(event) {
-                    _this.trigger(event, e, direction);
-                });
+                this.trigger($.camelCase('swipe-' + direction), e);
+                if (this.hasEvent('swipe')) {
+                    this.trigger('swipe', e, direction);
+                }
             } else if (this._status === 'cancel' || this._status === 'end') {
                 holdTimeout && clearTimeout(holdTimeout);
                 singleTapTimeout && clearTimeout(singleTapTimeout);
@@ -320,26 +318,8 @@
         hasSwipe: function() {
             return this.hasEvent('swipe|swipeLeft|swipeRight|swipeUp|swipeDown');
         },
-        getSwipe: function() {
-            var result = [];
-            var swipes = {
-                swipe: 1,
-                swipeLeft: 1,
-                swipeRight: 1,
-                swipeUp: 1,
-                swipeDown: 1
-            };
-            this.handler.forEach(function (handler) {
-                var event = handler && handler.e;
-                if (swipes[event]) {
-                    result.push(event);
-                    swipes[event] = 0;
-                }
-            });
-            return result;
-        },
         isSwipe: function() {
-            return this.getDistance() >= this.options.threshold && this.touch.x2;
+            return this.getDistance() >= this.options.threshold;
         },
         isDoubleTap: function() {
             if (this._doubleTapTime === null) {
