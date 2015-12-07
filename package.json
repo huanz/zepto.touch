@@ -1,6 +1,6 @@
 {
   "name": "zepto.touch",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "a zepto/jquery touch events plugin",
   "main": "zepto.touch.js",
   "scripts": {
