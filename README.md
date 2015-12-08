@@ -32,10 +32,11 @@ the api is the same as zepto/jquery events, but it also provides setting method,
 # options
 
 	$.fn.touch.defaults = {
-		fingers: 1,
+        fingers: 1,
         threshold: 75,
         longTapThreshold: 500,
         doubleTapThreshold: 200,
         excludedElements: 'label, button, input, select, textarea, .noTouch',
+        pageScroll: true,
         swipeMove: null
 	};
