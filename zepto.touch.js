@@ -54,6 +54,7 @@
         longTapThreshold: 500,
         doubleTapThreshold: 200,
         excludedElements: 'label, button, input, select, textarea, .noTouch',
+        pageScroll: true,
         swipeMove: null
     };
 
@@ -199,7 +200,9 @@
 
             if (touches) {
                 fingerCount = touches.length;
-            } else {
+            }
+
+            if (!options.pageScroll || !touches) {
                 e.preventDefault();
             }
 
@@ -227,6 +230,9 @@
                 holdTimeout = null;
                 return;
             }
+            if (!this.options.pageScroll) {
+                e.preventDefault();
+            }
             var touches = e.touches;
             var evt = touches ? touches[0] : e;
             this.updateTouchData(evt);
@@ -249,6 +255,9 @@
             }
         },
         touchEnd: function(e) {
+            if (e.touches && e.touches.length) {
+                return true;
+            }
             this.touch.now = e.timeStamp;
             this._status = this._status === 'move' ? 'end' : 'cancel';
 
@@ -263,6 +272,7 @@
         triggerHandler: function(e) {
             var _this = this;
             if (this._status === 'end' && this.isSwipe() && this.hasSwipe()) {
+                e.preventDefault();
                 var direction = this.getDirection();
                 this.trigger($.camelCase('swipe-' + direction), e);
                 if (this.hasEvent('swipe')) {
